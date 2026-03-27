@@ -8,7 +8,8 @@ const appState = {
   studentSocket: null,
   lecturerSocket: null,
   snapshot: null,
-  currentView: "student"
+  currentView: "student",
+  studentStatusTimer: null
 };
 
 const studentView = document.getElementById("studentView");
@@ -580,7 +581,21 @@ function setStudentStatus(message, isError = false, isOk = false) {
   if (!studentConnectionStatus) {
     return;
   }
+
+  if (appState.studentStatusTimer) {
+    window.clearTimeout(appState.studentStatusTimer);
+    appState.studentStatusTimer = null;
+  }
+
   studentConnectionStatus.textContent = message;
   studentConnectionStatus.classList.toggle("error", Boolean(isError));
   studentConnectionStatus.classList.toggle("ok", Boolean(isOk));
+
+  if (isOk) {
+    appState.studentStatusTimer = window.setTimeout(() => {
+      studentConnectionStatus.textContent = "";
+      studentConnectionStatus.classList.remove("error", "ok");
+      appState.studentStatusTimer = null;
+    }, 1000);
+  }
 }
