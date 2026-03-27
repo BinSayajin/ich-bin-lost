@@ -1,2 +1,5 @@
 # ich-bin-lost
-uni group project
+
+`npm install`
+
+`npm start`

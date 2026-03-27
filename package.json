@@ -1,0 +1,15 @@
+{
+  "name": "ich-bin-lost",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Realtime lecture feedback app with QR join and lecturer dashboard.",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js"
+  },
+  "dependencies": {
+    "express": "^5.1.0",
+    "qrcode": "^1.5.4",
+    "socket.io": "^4.8.1"
+  }
+}

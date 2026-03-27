@@ -1,136 +1,253 @@
- <!DOCTYPE html>
+<!DOCTYPE html>
 <html lang="de">
 <head>
   <meta charset="UTF-8">
-  <title>Ich bin lost – Prototype</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Ich bin Lost</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;600;700;800&family=Space+Grotesk:wght@500;700&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="style.css">
 </head>
 <body>
+  <div class="pageGlow pageGlow-left"></div>
+  <div class="pageGlow pageGlow-right"></div>
 
-<header class="mainNav">
-  <div class="brand">ICH BIN LOST</div>
-  <div class="navActions">
-    <button class="ghost" onclick="showStudent()">Student View</button>
-    <button class="ghost" onclick="requestLecturerAccess()">Lecturer View</button>
-  </div>
-</header>
+  <header class="mainNav">
+    <div class="brandBlock">
+      <span class="brandEyebrow">Live feedback waehrend der Vorlesung</span>
+      <div class="brand">ICH BIN LOST</div>
+    </div>
+    <div class="navActions">
+      <button id="studentNavBtn" class="navGhost active">Student View</button>
+      <button id="lecturerNavBtn" class="navGhost">Lecturer View</button>
+    </div>
+  </header>
 
+  <main class="layoutShell">
+    <section id="studentView" class="view">
+      <div class="studentStage">
+        <div class="sessionCorner">
+          <div class="cornerMeta">
+            <span class="metaLabel">Vorlesung</span>
+            <strong id="currentCourse">Human computer Interaction</strong>
+          </div>
+          <div class="cornerMeta">
+            <span class="metaLabel">Sitzung</span>
+            <strong id="sessionCodeText">------</strong>
+          </div>
+        </div>
 
-<section id="studentView" class="view">
-  <div class="studentHeader">
-    <h1>ICH BIN LOST</h1>
-    <div class="courseTag" title="Aktuelle Vorlesung">
-      <span class="courseLabel">Vorlesung</span>
-      <strong id="currentCourse">Mathe 1 – Lineare Algebra</strong>
+        <button id="lostBtn" class="lostButton" type="button">
+          <span class="lostButtonSmall">Ich bin</span>
+          <span class="lostButtonBig">LOST</span>
+        </button>
+
+        <div id="lostForm" class="studentSheet hidden">
+          <div class="sheetHeader">
+            <div>
+              <p class="eyebrow">Rueckmeldung</p>
+              <h2>Wie lost bist du gerade?</h2>
+            </div>
+            <button id="cancelLostBtn" class="sheetClose" type="button" aria-label="Schliessen">&times;</button>
+          </div>
+          <div id="sliderBadge" class="sliderBadge">5 / 10</div>
+
+          <label class="fieldGroup" for="lostSlider">
+            <div class="sliderPanel">
+              <input id="lostSlider" class="lostSlider" type="range" min="0" max="10" step="1" value="5">
+              <div class="scale">
+                <span>0</span>
+                <span>1</span>
+                <span>2</span>
+                <span>3</span>
+                <span>4</span>
+                <span>5</span>
+                <span>6</span>
+                <span>7</span>
+                <span>8</span>
+                <span>9</span>
+                <span>10</span>
+              </div>
+              <div class="scaleLabels">
+                <span>klar</span>
+                <span>unsicher</span>
+                <span>verliere den Faden</span>
+                <span>komplett lost</span>
+              </div>
+            </div>
+          </label>
+
+          <div class="fieldGrid">
+            <label class="fieldGroup" for="slideInput">
+              <span class="fieldLabel">Folie</span>
+              <input id="slideInput" type="number" min="1" step="1" inputmode="numeric" placeholder="z. B. 7">
+            </label>
+
+            <label class="fieldGroup" for="commentInput">
+              <span class="fieldLabel">Kommentar</span>
+              <textarea id="commentInput" rows="3" maxlength="240" placeholder="Optional"></textarea>
+            </label>
+          </div>
+
+          <div class="studentStatsStrip">
+            <div class="miniStat">
+              <span>verbunden</span>
+              <strong id="connectedStudentsCount">0</strong>
+            </div>
+            <div class="miniStat">
+              <span>ebenfalls lost</span>
+              <strong id="recentLostCount">0</strong>
+            </div>
+            <div class="miniStat">
+              <span>avg</span>
+              <strong id="averageLostLabel">0.0</strong>
+            </div>
+          </div>
+
+          <div class="sheetActions">
+            <button id="submitLostBtn" class="primaryBtn" type="button">Anonym senden</button>
+          </div>
+        </div>
+
+        <p id="studentConnectionStatus" class="studentStatus">
+          Warte auf aktive Sitzung ...
+        </p>
+        <p id="studentFeedback" class="feedback hidden"></p>
+      </div>
+    </section>
+
+    <section id="lecturerView" class="view hidden">
+      <div class="lecturerHeader">
+        <div>
+          <p class="eyebrow">Lecturer</p>
+          <h1>Live Dashboard</h1>
+        </div>
+        <div class="lecturerActions">
+          <button id="resetSessionBtn" class="primaryBtn" type="button">Neue Sitzung starten</button>
+        </div>
+      </div>
+
+      <section class="teacherStats">
+        <article class="statCard highlightCard">
+          <span class="statLabel">Aktuelle Uhrzeit</span>
+          <strong id="clockValue">--:--:--</strong>
+          <p id="sessionStartValue">Sitzungsstart --:--</p>
+        </article>
+        <article class="statCard">
+          <span class="statLabel">Live verbundene Studierende</span>
+          <strong id="teacherConnectedCount">0</strong>
+          <p>Aktuell anonym eingeloggt</p>
+        </article>
+        <article class="statCard">
+          <span class="statLabel">Signale gesamt</span>
+          <strong id="teacherTotalSignals">0</strong>
+          <p>Seit Beginn dieser Sitzung</p>
+        </article>
+        <article class="statCard">
+          <span class="statLabel">Durchschnitt Lost</span>
+          <strong id="teacherAverageLost">0.0</strong>
+          <p>Aus allen bisherigen Rueckmeldungen</p>
+        </article>
+      </section>
+
+      <div class="lecturerTabs">
+        <button class="tabBtn active" data-target="liveSection" type="button">Live-Sitzung</button>
+        <button class="tabBtn" data-target="weeklySection" type="button">Wochenuebersicht</button>
+      </div>
+
+      <section id="liveSection" class="lecturerSection">
+        <div class="liveGrid">
+          <article class="panelCard qrPanel">
+            <div class="panelHeader">
+              <div>
+                <p class="eyebrow">QR Join</p>
+                <h2>Vorlesung starten</h2>
+              </div>
+            </div>
+            <div class="qrLayout">
+              <img id="qrCodeImage" class="qrImage" alt="QR-Code fuer die aktuelle Sitzung">
+              <div class="qrDetails">
+                <div class="detailCard">
+                  <span class="detailLabel">Join-URL</span>
+                  <a id="joinUrlLink" href="#" target="_blank" rel="noreferrer">-</a>
+                </div>
+                <div class="detailCard">
+                  <span class="detailLabel">Sitzungscode</span>
+                  <strong id="teacherSessionCode">------</strong>
+                </div>
+                <div class="detailCard">
+                  <span class="detailLabel">Lost-Strom Schwellwert</span>
+                  <strong id="stormThresholdValue">0</strong>
+                </div>
+              </div>
+            </div>
+          </article>
+
+          <article class="panelCard">
+            <div class="panelHeader">
+              <div>
+                <p class="eyebrow">Live</p>
+                <h2>30-Minuten-Slots</h2>
+              </div>
+            </div>
+            <div id="liveChart" class="chartMount"></div>
+          </article>
+        </div>
+
+        <article class="panelCard">
+          <div class="panelHeader">
+            <div>
+              <p class="eyebrow">Feed</p>
+              <h2>Letzte Rueckmeldungen</h2>
+            </div>
+          </div>
+
+          <div class="tableWrap">
+            <table class="lecturerTable">
+              <thead>
+                <tr>
+                  <th>Zeit</th>
+                  <th>Folie</th>
+                  <th>Lost</th>
+                  <th>Kommentar</th>
+                </tr>
+              </thead>
+              <tbody id="feedbackTableBody"></tbody>
+            </table>
+          </div>
+        </article>
+      </section>
+
+      <section id="weeklySection" class="lecturerSection hidden">
+        <article class="panelCard">
+          <div class="panelHeader">
+            <div>
+              <p class="eyebrow">Woche</p>
+              <h2>Wochenuebersicht</h2>
+            </div>
+          </div>
+          <div id="weeklyCharts" class="weeklyGrid"></div>
+        </article>
+      </section>
+    </section>
+  </main>
+
+  <div id="lecturerLock" class="lockOverlay hidden">
+    <div class="lockCard">
+      <p class="eyebrow">Geschuetzt</p>
+      <h2>Lehrenden-Login</h2>
+      <p class="heroText">Gib das Passwort ein, um die Lehrendenansicht freizuschalten.</p>
+      <input id="lockPassword" type="password" placeholder="Passwort" aria-label="Passwort">
+      <p id="lockFeedback" class="feedback errorFeedback hidden">Falsches Passwort.</p>
+      <div class="lockActions">
+        <button id="cancelLockBtn" class="secondaryBtn" type="button">Abbrechen</button>
+        <button id="unlockLecturerBtn" class="primaryBtn" type="button">Entsperren</button>
+      </div>
     </div>
   </div>
 
-  <button id="lostBtn" class="primary">
-    LOST<br>
-    BUTTON
-</button>
-
-  <div id="lostForm" class="hidden">
-    <label>
-      Wie lost bist du?
-<div class="sliderWrapper">
-  <input id="lostSlider" type="range" min="0" max="10" step="1" value="5">
-
-  <div class="scale">
-    <span>0</span><span>1</span><span>2</span><span>3</span><span>4</span>
-    <span>5</span><span>6</span><span>7</span><span>8</span><span>9</span><span>10</span>
-  </div>
-  <div class="scaleLabels">
-    <span>Alles klar</span>
-    <span>Leichte Fragen</span>
-    <span>Teilweise lost</span>
-    <span>Komplett lost</span>
-  </div>
-</div>
-    </label>
-Was ist unklar?
-    <textarea placeholder="hier eingeben"></textarea>
-
-<label>
-  Welche Vorlesungsfolie ist unklar?
-  <input
-  type="number"
-  id="slideInput"
-  placeholder="z.B. 7"
-  min="1"
-  step="1"
-  inputmode="numeric"
-  pattern="[0-9]*"
->
-</label>
-    <button onclick="sendLost()">Senden</button>
-  </div>
-
-  <p id="studentFeedback" class="hidden"></p>
-
-  <div class="liveBox">
-    🔴 Aktuell lost: <strong>12 Studierende</strong>
-  </div>
-</section>
-
-<section id="lecturerView" class="view hidden">
-  <div class="lecturerTop">
-    <div>
-      <p class="eyebrow">Professor:innen-Ansicht</p>
-      <h1>Lost-Übersicht</h1>
-    </div>
-    <div class="lecturerNav">
-      <button class="navTab active" data-target="weeklySection">Wochenübersicht</button>
-      <button class="navTab" data-target="liveSection">Live-Sitzung</button>
-    </div>
-  </div>
-
-  <div id="weeklySection" class="lecturerSection">
-    <p class="muted">Überblick pro Vorlesung mit Zeitachse in 30-Minuten-Schritten.</p>
-    <div id="weeklyCharts" class="weeklyGrid"></div>
-  </div>
-
-  <div id="liveSection" class="lecturerSection hidden">
-    <div id="liveChart"></div>
-
-    <table class="lecturerTable">
-      <tr>
-        <th class="timeCol">Zeit</th>
-        <th class="slidesCol">Vorlesungsfolien</th>
-        <th>Was unklar ist</th>
-      </tr>
-      <tr>
-        <td class="timeCol">10:15</td>
-        <td class="slidesCol">Folie 3</td>
-        <td>Begriff nicht erklärt</td>
-      </tr>
-      <tr>
-        <td class="timeCol">10:30</td>
-        <td class="slidesCol">Folie 5</td>
-        <td>Zu schnell erklärt</td>
-      </tr>
-      <tr class="critical">
-        <td class="timeCol">10:45</td>
-        <td class="slidesCol">Folie 7</td>
-        <td>Beispiel fehlt</td>
-      </tr>
-    </table>
-  </div>
-</section>
-
-<div id="lecturerLock" class="lockOverlay hidden">
-  <div class="lockCard">
-    <h2>Professor:innen-Login</h2>
-    <p class="muted">Bitte Passwort eingeben, um die Ansicht zu öffnen.</p>
-    <input id="lockPassword" type="password" placeholder="Passwort" aria-label="Passwort">
-    <p id="lockFeedback" class="lockFeedback hidden">Falsches Passwort.</p>
-    <div class="lockActions">
-      <button class="ghost" onclick="closeLecturerLock()">Abbrechen</button>
-      <button class="primaryBtn" onclick="unlockLecturer()">Entsperren</button>
-    </div>
-  </div>
-</div>
-
-<script src="script.js"></script>
+  <script src="/socket.io/socket.io.js"></script>
+  <script src="script.js"></script>
 </body>
 </html>
