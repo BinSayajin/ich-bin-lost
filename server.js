@@ -9,10 +9,18 @@ const { Server } = require("socket.io");
 
 const PORT = Number(process.env.PORT || 3000);
 const LECTURER_PASSWORD = process.env.LECTURER_PASSWORD || "prof123";
-const DEFAULT_COURSE = "Mathe 1 - Lineare Algebra";
+const DEFAULT_COURSE = "Human Computer Interaction";
 const RECENT_WINDOW_MINUTES = 10;
 const SLOT_WINDOW_MINUTES = 30;
+const MAX_ARCHIVED_LECTURES = 3;
 const HISTORY_FILE = path.join(__dirname, "data", "sessions.json");
+const QUESTION_CATEGORIES = [
+  { id: "concept", label: "Begriff unklar" },
+  { id: "pace", label: "Zu schnell" },
+  { id: "example", label: "Beispiel fehlt" },
+  { id: "context", label: "Kontext nicht verstanden" },
+  { id: "other", label: "Sonstiges" }
+];
 
 const app = express();
 const server = http.createServer(app);
@@ -81,20 +89,76 @@ app.post("/api/lecturer/session/reset", (request, response) => {
     return;
   }
 
-  archiveActiveSession();
-  const courseName = String(request.body?.courseName || DEFAULT_COURSE).trim() || DEFAULT_COURSE;
-  state.activeSession = createSession(courseName);
-
-  const studentSocketIds = [...state.studentConnections.keys()];
-  studentSocketIds.forEach((socketId) => {
-    io.to(socketId).emit("session:ended");
-    io.sockets.sockets.get(socketId)?.disconnect(true);
+  rotateActiveSession({
+    request,
+    courseName: request.body?.courseName,
+    archiveMode: "smart"
   });
-  state.studentConnections.clear();
 
-  const snapshot = buildSnapshot(request);
-  io.emit("session:update", snapshot);
-  response.json({ ok: true, snapshot });
+  response.json({
+    ok: true,
+    snapshot: buildSnapshot(request)
+  });
+});
+
+app.post("/api/lecturer/session/end", (request, response) => {
+  if (!isLecturerAuthorized(request)) {
+    response.status(401).json({ ok: false });
+    return;
+  }
+
+  const archivedLecture = rotateActiveSession({
+    request,
+    courseName: request.body?.courseName,
+    archiveMode: "force"
+  });
+
+  response.json({
+    ok: true,
+    archivedLecture,
+    snapshot: buildSnapshot(request)
+  });
+});
+
+app.post("/api/lecturer/session/course-name", (request, response) => {
+  if (!isLecturerAuthorized(request)) {
+    response.status(401).json({ ok: false });
+    return;
+  }
+
+  const courseName = sanitizeCourseName(request.body?.courseName);
+  state.activeSession.courseName = courseName;
+  broadcastSnapshot();
+  response.json({
+    ok: true,
+    snapshot: buildSnapshot(request)
+  });
+});
+
+app.get("/api/lectures/export", (request, response) => {
+  if (!isLecturerAuthorized(request)) {
+    response.status(401).send("Unauthorized");
+    return;
+  }
+
+  const lectureId = String(request.query.lectureId || "").trim();
+  const lectures = lectureId
+    ? state.history.filter((lecture) => lecture.id === lectureId)
+    : state.history.slice(0, MAX_ARCHIVED_LECTURES);
+
+  if (lectures.length === 0) {
+    response.status(404).send("No lecture data found");
+    return;
+  }
+
+  const csv = buildLecturesCsv(lectures);
+  const filename = lectureId
+    ? `vorlesung-${lectureId}.csv`
+    : "vorlesungsuebersicht-letzte-3.csv";
+
+  response.setHeader("Content-Type", "text/csv; charset=utf-8");
+  response.setHeader("Content-Disposition", `attachment; filename="${filename}"`);
+  response.send(`\uFEFF${csv}`);
 });
 
 io.on("connection", (socket) => {
@@ -169,14 +233,16 @@ function buildSubmission(clientId, payload) {
   const slideValue = payload?.slide;
   const slide = Number.isInteger(slideValue) && slideValue > 0 ? slideValue : null;
   const comment = String(payload?.comment || "").trim().slice(0, 240);
+  const categoryId = normalizeCategoryId(payload?.categoryId);
 
-  if (!Number.isFinite(level) || level < 0 || level > 10) {
+  if (!Number.isFinite(level) || level < 0 || level > 10 || !categoryId) {
     return null;
   }
 
   return {
     id: crypto.randomUUID(),
     clientId,
+    categoryId,
     level: Number(level.toFixed(1)),
     slide,
     comment,
@@ -188,7 +254,7 @@ function createSession(courseName) {
   return {
     id: crypto.randomUUID(),
     code: generateSessionCode(),
-    courseName,
+    courseName: sanitizeCourseName(courseName),
     startedAt: new Date().toISOString(),
     submissions: [],
     peakConnectedStudents: 0
@@ -215,6 +281,7 @@ function buildSnapshotFromBaseUrl(baseUrl) {
   const recentLostCount = getRecentUniqueReporterCount();
   const stormThreshold = Math.max(3, Math.ceil(Math.max(session.peakConnectedStudents, connectedStudents, 1) * 0.35));
   const joinUrl = `${baseUrl}/?session=${session.code}`;
+  const currentTypeBreakdown = buildCategoryBreakdown(submissions);
 
   return {
     courseName: session.courseName,
@@ -226,6 +293,8 @@ function buildSnapshotFromBaseUrl(baseUrl) {
     averageLost,
     stormThreshold,
     joinUrl,
+    questionCategories: QUESTION_CATEGORIES,
+    currentTypeBreakdown,
     liveFeedback: buildLiveFeedback(),
     currentSessionChart: buildChartData({
       title: "Live-Sitzung",
@@ -236,7 +305,7 @@ function buildSnapshotFromBaseUrl(baseUrl) {
       threshold: stormThreshold,
       liveCount: recentLostCount
     }),
-    weeklyCharts: buildWeeklyCharts(stormThreshold)
+    lectureOverview: buildLectureOverview()
   };
 }
 
@@ -247,36 +316,61 @@ function buildLiveFeedback() {
     .map((item) => ({
       id: item.id,
       timeLabel: formatTime(item.createdAt),
+      categoryLabel: getCategoryLabel(item.categoryId),
       slideLabel: item.slide ? `Folie ${item.slide}` : "-",
       level: item.level,
       commentLabel: item.comment || "Kein Kommentar"
     }));
 }
 
-function buildWeeklyCharts(defaultThreshold) {
-  const weekEntries = [...state.history]
-    .filter((item) => isSameCalendarWeek(item.startedAt, new Date().toISOString()))
-    .map((item) => buildChartData({
-      title: item.courseName,
-      subtitle: `${formatDate(item.startedAt)} | ${item.totalSignals} Signale`,
-      startedAt: item.startedAt,
-      endedAt: item.endedAt,
-      submissions: item.submissions,
-      threshold: item.threshold || defaultThreshold,
-      liveCount: null
-    }));
+function buildLectureOverview() {
+  return state.history
+    .slice(0, MAX_ARCHIVED_LECTURES)
+    .map((lecture) => {
+      const submissions = Array.isArray(lecture.submissions) ? lecture.submissions : [];
+      const totalSignals = Number.isFinite(lecture.totalSignals) ? lecture.totalSignals : submissions.length;
+      const averageLost = Number.isFinite(lecture.averageLost)
+        ? lecture.averageLost
+        : (submissions.length === 0
+          ? 0
+          : roundToOneDecimal(submissions.reduce((sum, item) => sum + Number(item.level || 0), 0) / submissions.length));
+      const categoryBreakdown = buildCategoryBreakdown(submissions);
+      return {
+        id: lecture.id,
+        courseName: lecture.courseName,
+        startedAt: lecture.startedAt,
+        endedAt: lecture.endedAt,
+        totalSignals,
+        averageLost,
+        threshold: lecture.threshold,
+        topCategories: categoryBreakdown.slice(0, 3),
+        chart: buildChartData({
+          title: lecture.courseName,
+          subtitle: `${formatDate(lecture.startedAt)} | ${totalSignals} Signale`,
+          startedAt: lecture.startedAt,
+          endedAt: lecture.endedAt,
+          submissions,
+          threshold: lecture.threshold,
+          liveCount: null
+        })
+      };
+    });
+}
 
-  weekEntries.unshift(buildChartData({
-    title: `${state.activeSession.courseName} (laufend)`,
-    subtitle: `${formatDate(state.activeSession.startedAt)} | Werte laufen live ein`,
-    startedAt: state.activeSession.startedAt,
-    endedAt: new Date().toISOString(),
-    submissions: state.activeSession.submissions,
-    threshold: defaultThreshold,
-    liveCount: getRecentUniqueReporterCount()
-  }));
+function buildCategoryBreakdown(submissions) {
+  const counts = new Map(QUESTION_CATEGORIES.map((entry) => [entry.id, 0]));
 
-  return weekEntries.slice(0, 6);
+  submissions.forEach((submission) => {
+    counts.set(submission.categoryId, (counts.get(submission.categoryId) || 0) + 1);
+  });
+
+  return QUESTION_CATEGORIES
+    .map((entry) => ({
+      id: entry.id,
+      label: entry.label,
+      count: counts.get(entry.id) || 0
+    }))
+    .sort((left, right) => right.count - left.count || left.label.localeCompare(right.label, "de"));
 }
 
 function buildChartData({ title, subtitle, startedAt, endedAt, submissions, threshold, liveCount }) {
@@ -394,25 +488,118 @@ function updatePeakStudents() {
   );
 }
 
-function archiveActiveSession() {
+function rotateActiveSession({ request, courseName, archiveMode }) {
+  const archivedLecture = archiveActiveSession({
+    force: archiveMode === "force"
+  });
+  const nextCourseName = sanitizeCourseName(courseName || state.activeSession.courseName);
+
+  state.activeSession = createSession(nextCourseName);
+  disconnectStudents();
+  io.emit("session:update", buildSnapshot(request));
+
+  return archivedLecture;
+}
+
+function disconnectStudents() {
+  const studentSocketIds = [...state.studentConnections.keys()];
+  studentSocketIds.forEach((socketId) => {
+    io.to(socketId).emit("session:ended");
+    io.sockets.sockets.get(socketId)?.disconnect(true);
+  });
+  state.studentConnections.clear();
+}
+
+function archiveActiveSession({ force = false } = {}) {
   const active = state.activeSession;
   const durationMs = Date.now() - new Date(active.startedAt).getTime();
-  if (active.submissions.length === 0 && durationMs < 60 * 1000) {
-    return;
+  if (!force && active.submissions.length === 0 && durationMs < 60 * 1000) {
+    return null;
   }
 
   const threshold = Math.max(3, Math.ceil(Math.max(active.peakConnectedStudents, 1) * 0.35));
-  state.history.unshift({
+  const archivedLecture = {
     id: active.id,
     courseName: active.courseName,
     startedAt: active.startedAt,
     endedAt: new Date().toISOString(),
     totalSignals: active.submissions.length,
+    averageLost: active.submissions.length === 0
+      ? 0
+      : roundToOneDecimal(active.submissions.reduce((sum, item) => sum + item.level, 0) / active.submissions.length),
     threshold,
     submissions: active.submissions
-  });
-  state.history = state.history.slice(0, 20);
+  };
+
+  state.history = [
+    archivedLecture,
+    ...state.history.filter((entry) => entry.id !== archivedLecture.id)
+  ].slice(0, MAX_ARCHIVED_LECTURES);
   saveHistory();
+  return archivedLecture;
+}
+
+function buildLecturesCsv(lectures) {
+  const header = [
+    "Vorlesung",
+    "Start",
+    "Ende",
+    "Zeitpunkt",
+    "Fragetyp",
+    "Lost-Level",
+    "Folie",
+    "Kommentar"
+  ];
+
+  const rows = lectures.flatMap((lecture) => {
+    const submissions = Array.isArray(lecture.submissions) ? lecture.submissions : [];
+    if (submissions.length === 0) {
+      return [[
+        lecture.courseName,
+        lecture.startedAt,
+        lecture.endedAt,
+        "",
+        "",
+        "",
+        "",
+        "Keine Rueckmeldungen"
+      ]];
+    }
+
+    return submissions.map((submission) => [
+      lecture.courseName,
+      lecture.startedAt,
+      lecture.endedAt,
+      submission.createdAt,
+      getCategoryLabel(submission.categoryId),
+      submission.level,
+      submission.slide || "",
+      submission.comment || ""
+    ]);
+  });
+
+  return [header, ...rows].map(toCsvLine).join("\n");
+}
+
+function toCsvLine(columns) {
+  return columns.map((value) => {
+    const normalized = String(value ?? "");
+    return `"${normalized.replaceAll('"', '""')}"`;
+  }).join(";");
+}
+
+function normalizeCategoryId(value) {
+  const normalized = String(value || "").trim();
+  return QUESTION_CATEGORIES.some((entry) => entry.id === normalized) ? normalized : "";
+}
+
+function getCategoryLabel(categoryId) {
+  return QUESTION_CATEGORIES.find((entry) => entry.id === categoryId)?.label || "Unbekannt";
+}
+
+function sanitizeCourseName(value) {
+  const normalized = String(value || "").trim().slice(0, 80);
+  return normalized || DEFAULT_COURSE;
 }
 
 function isLecturerAuthorized(request) {
@@ -543,21 +730,4 @@ function formatDate(isoString) {
     day: "2-digit",
     month: "2-digit"
   });
-}
-
-function isSameCalendarWeek(leftIso, rightIso) {
-  const left = new Date(leftIso);
-  const right = new Date(rightIso);
-  const leftWeek = getWeekAnchor(left);
-  const rightWeek = getWeekAnchor(right);
-  return leftWeek.getTime() === rightWeek.getTime();
-}
-
-function getWeekAnchor(date) {
-  const anchor = new Date(date);
-  anchor.setHours(0, 0, 0, 0);
-  const day = anchor.getDay();
-  const delta = day === 0 ? -6 : 1 - day;
-  anchor.setDate(anchor.getDate() + delta);
-  return anchor;
 }

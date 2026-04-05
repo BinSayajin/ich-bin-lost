@@ -23,6 +23,7 @@ const cancelLostBtn = document.getElementById("cancelLostBtn");
 const submitLostBtn = document.getElementById("submitLostBtn");
 const lostSlider = document.getElementById("lostSlider");
 const sliderBadge = document.getElementById("sliderBadge");
+const questionTypeInput = document.getElementById("questionTypeInput");
 const slideInput = document.getElementById("slideInput");
 const commentInput = document.getElementById("commentInput");
 const studentFeedback = document.getElementById("studentFeedback");
@@ -39,6 +40,10 @@ const lockFeedback = document.getElementById("lockFeedback");
 const unlockLecturerBtn = document.getElementById("unlockLecturerBtn");
 const cancelLockBtn = document.getElementById("cancelLockBtn");
 const resetSessionBtn = document.getElementById("resetSessionBtn");
+const endLectureBtn = document.getElementById("endLectureBtn");
+const saveCourseBtn = document.getElementById("saveCourseBtn");
+const courseNameInput = document.getElementById("courseNameInput");
+const downloadAllLecturesBtn = document.getElementById("downloadAllLecturesBtn");
 const clockValue = document.getElementById("clockValue");
 const sessionStartValue = document.getElementById("sessionStartValue");
 const teacherConnectedCount = document.getElementById("teacherConnectedCount");
@@ -49,7 +54,7 @@ const stormThresholdValue = document.getElementById("stormThresholdValue");
 const qrCodeImage = document.getElementById("qrCodeImage");
 const joinUrlLink = document.getElementById("joinUrlLink");
 const liveChart = document.getElementById("liveChart");
-const weeklyCharts = document.getElementById("weeklyCharts");
+const lectureOverviewMount = document.getElementById("weeklyCharts");
 const feedbackTableBody = document.getElementById("feedbackTableBody");
 const tabButtons = Array.from(document.querySelectorAll(".tabBtn"));
 
@@ -84,6 +89,17 @@ function bindEvents() {
   unlockLecturerBtn?.addEventListener("click", unlockLecturer);
   cancelLockBtn?.addEventListener("click", closeLecturerLock);
   resetSessionBtn?.addEventListener("click", resetSession);
+  endLectureBtn?.addEventListener("click", endLecture);
+  saveCourseBtn?.addEventListener("click", saveCourseName);
+  courseNameInput?.addEventListener("keydown", (event) => {
+    if (event.key === "Enter") {
+      event.preventDefault();
+      saveCourseName();
+    }
+  });
+  downloadAllLecturesBtn?.addEventListener("click", () => {
+    downloadLecturesCsv();
+  });
   slideInput?.addEventListener("input", () => {
     slideInput.value = slideInput.value.replace(/[^0-9]/g, "");
   });
@@ -94,8 +110,7 @@ function bindEvents() {
       document.querySelectorAll(".lecturerSection").forEach((section) => {
         section.classList.add("hidden");
       });
-      const target = document.getElementById(button.dataset.target);
-      target?.classList.remove("hidden");
+      document.getElementById(button.dataset.target)?.classList.remove("hidden");
     });
   });
 }
@@ -284,7 +299,14 @@ function sendLostSignal() {
     return;
   }
 
+  const categoryId = questionTypeInput?.value || "";
+  if (!categoryId) {
+    setStudentStatus("Bitte waehle einen Fragetyp aus.", true);
+    return;
+  }
+
   const payload = {
+    categoryId,
     level: Number(lostSlider?.value || 0),
     slide: slideInput?.value ? Number(slideInput.value) : null,
     comment: (commentInput?.value || "").trim()
@@ -303,32 +325,79 @@ function sendLostSignal() {
 }
 
 async function resetSession() {
-  if (!appState.lecturerToken) {
-    openLecturerLockOrView();
+  await callLecturerAction({
+    button: resetSessionBtn,
+    endpoint: "/api/lecturer/session/reset",
+    errorMessage: "Neue Sitzung konnte nicht gestartet werden."
+  });
+}
+
+async function endLecture() {
+  await callLecturerAction({
+    button: endLectureBtn,
+    endpoint: "/api/lecturer/session/end",
+    errorMessage: "Vorlesung konnte nicht beendet werden."
+  });
+}
+
+async function saveCourseName() {
+  if (!appState.lecturerToken || !courseNameInput) {
     return;
   }
 
-  resetSessionBtn.disabled = true;
+  saveCourseBtn.disabled = true;
   try {
-    const response = await fetch("/api/lecturer/session/reset", {
+    const response = await fetch("/api/lecturer/session/course-name", {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
         Authorization: `Bearer ${appState.lecturerToken}`
       },
-      body: JSON.stringify({})
+      body: JSON.stringify({ courseName: courseNameInput.value })
     });
 
     const payload = await response.json();
     if (!response.ok || !payload.ok) {
-      throw new Error("reset_failed");
+      throw new Error("course_save_failed");
     }
 
     handleSnapshot(payload.snapshot);
   } catch (_error) {
-    window.alert("Neue Sitzung konnte nicht gestartet werden.");
+    window.alert("Vorlesungsname konnte nicht gespeichert werden.");
   } finally {
-    resetSessionBtn.disabled = false;
+    saveCourseBtn.disabled = false;
+  }
+}
+
+async function callLecturerAction({ button, endpoint, errorMessage }) {
+  if (!appState.lecturerToken) {
+    openLecturerLockOrView();
+    return;
+  }
+
+  button.disabled = true;
+  try {
+    const response = await fetch(endpoint, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${appState.lecturerToken}`
+      },
+      body: JSON.stringify({
+        courseName: courseNameInput?.value || ""
+      })
+    });
+
+    const payload = await response.json();
+    if (!response.ok || !payload.ok) {
+      throw new Error("lecturer_action_failed");
+    }
+
+    handleSnapshot(payload.snapshot);
+  } catch (_error) {
+    window.alert(errorMessage);
+  } finally {
+    button.disabled = false;
   }
 }
 
@@ -343,6 +412,9 @@ function handleSnapshot(snapshot) {
   connectedStudentsCount.textContent = String(snapshot.connectedStudents);
   recentLostCount.textContent = String(snapshot.recentLostCount);
   averageLostLabel.textContent = snapshot.averageLost.toFixed(1);
+  if (courseNameInput && document.activeElement !== courseNameInput) {
+    courseNameInput.value = snapshot.courseName;
+  }
 
   teacherConnectedCount.textContent = String(snapshot.connectedStudents);
   teacherTotalSignals.textContent = String(snapshot.totalSignals);
@@ -357,7 +429,7 @@ function handleSnapshot(snapshot) {
 
   renderJoinUrl(snapshot.joinUrl);
   renderChartMount(liveChart, snapshot.currentSessionChart, "Noch keine Zeitreihe verfuegbar.");
-  renderWeeklyCharts(snapshot.weeklyCharts);
+  renderLectureOverview(snapshot.lectureOverview || []);
   renderFeedbackTable(snapshot.liveFeedback);
 }
 
@@ -367,6 +439,9 @@ function resetStudentForm(closeSheet = false) {
   }
   if (slideInput) {
     slideInput.value = "";
+  }
+  if (questionTypeInput) {
+    questionTypeInput.value = "concept";
   }
   if (lostSlider) {
     lostSlider.value = "5";
@@ -398,7 +473,7 @@ function renderFeedbackTable(rows) {
 
   if (!rows || rows.length === 0) {
     const emptyRow = document.createElement("tr");
-    emptyRow.innerHTML = '<td colspan="4"><div class="emptyState">Noch keine Rueckmeldungen in dieser Sitzung.</div></td>';
+    emptyRow.innerHTML = '<td colspan="5"><div class="emptyState">Noch keine Rueckmeldungen in dieser Sitzung.</div></td>';
     feedbackTableBody.appendChild(emptyRow);
     return;
   }
@@ -411,6 +486,8 @@ function renderFeedbackTable(rows) {
 
     const timeCell = document.createElement("td");
     timeCell.textContent = item.timeLabel;
+    const typeCell = document.createElement("td");
+    typeCell.textContent = item.categoryLabel;
     const slideCell = document.createElement("td");
     slideCell.textContent = item.slideLabel;
     const levelCell = document.createElement("td");
@@ -418,25 +495,67 @@ function renderFeedbackTable(rows) {
     const commentCell = document.createElement("td");
     commentCell.textContent = item.commentLabel;
 
-    row.append(timeCell, slideCell, levelCell, commentCell);
+    row.append(timeCell, typeCell, slideCell, levelCell, commentCell);
     feedbackTableBody.appendChild(row);
   });
 }
 
-function renderWeeklyCharts(charts) {
-  if (!weeklyCharts) {
+function renderLectureOverview(lectures) {
+  if (!lectureOverviewMount) {
     return;
   }
 
-  weeklyCharts.innerHTML = "";
+  lectureOverviewMount.innerHTML = "";
 
-  if (!charts || charts.length === 0) {
-    weeklyCharts.innerHTML = '<div class="emptyState">Noch keine gespeicherten Sitzungen in dieser Woche.</div>';
+  if (!lectures.length) {
+    lectureOverviewMount.innerHTML = '<div class="emptyState">Noch keine abgeschlossenen Vorlesungen gespeichert.</div>';
     return;
   }
 
-  charts.forEach((chartData) => {
-    weeklyCharts.appendChild(createChartCard(chartData));
+  lectures.forEach((lecture) => {
+    const card = document.createElement("article");
+    card.className = "historyCard";
+
+    const header = document.createElement("div");
+    header.className = "historyHeader";
+    header.innerHTML = `
+      <div>
+        <h3 class="historyTitle">${lecture.courseName}</h3>
+        <p class="historyDate">${formatDateTimeRange(lecture.startedAt, lecture.endedAt)}</p>
+      </div>
+      <button class="secondaryBtn historyDownloadBtn" type="button">CSV</button>
+    `;
+
+    header.querySelector(".historyDownloadBtn")?.addEventListener("click", () => {
+      downloadLecturesCsv(lecture.id);
+    });
+
+    const stats = document.createElement("div");
+    stats.className = "historyStats";
+    stats.innerHTML = `
+      <div class="historyStat"><span>Signale</span><strong>${lecture.totalSignals}</strong></div>
+      <div class="historyStat"><span>Durchschnitt</span><strong>${Number(lecture.averageLost).toFixed(1)}</strong></div>
+      <div class="historyStat"><span>Lost-Strom</span><strong>${lecture.threshold}</strong></div>
+    `;
+
+    const categories = document.createElement("div");
+    categories.className = "historyCategories";
+    (lecture.topCategories || []).forEach((entry) => {
+      const chip = document.createElement("div");
+      chip.className = "categoryChip";
+      chip.innerHTML = `<span>${entry.label}</span><strong>${entry.count}</strong>`;
+      categories.appendChild(chip);
+    });
+
+    const chartWrap = document.createElement("div");
+    chartWrap.className = "historyChartWrap";
+    chartWrap.appendChild(createChartCard({
+      ...lecture.chart,
+      title: "Verlauf"
+    }));
+
+    card.append(header, stats, categories, chartWrap);
+    lectureOverviewMount.appendChild(card);
   });
 }
 
@@ -552,18 +671,50 @@ function createChartCard(chartData) {
     label.className = "tickLabel";
     label.textContent = segment.label;
 
-    tick.appendChild(mark);
-    tick.appendChild(label);
+    tick.append(mark, label);
     xAxis.appendChild(tick);
   });
 
-  body.appendChild(plotFrame);
-  body.appendChild(xAxis);
-  shell.appendChild(yAxis);
-  shell.appendChild(body);
+  body.append(plotFrame, xAxis);
+  shell.append(yAxis, body);
   card.appendChild(shell);
 
   return card;
+}
+
+async function downloadLecturesCsv(lectureId = "") {
+  if (!appState.lecturerToken) {
+    openLecturerLockOrView();
+    return;
+  }
+
+  const url = lectureId
+    ? `/api/lectures/export?lectureId=${encodeURIComponent(lectureId)}`
+    : "/api/lectures/export";
+
+  try {
+    const response = await fetch(url, {
+      headers: {
+        Authorization: `Bearer ${appState.lecturerToken}`
+      }
+    });
+
+    if (!response.ok) {
+      throw new Error("download_failed");
+    }
+
+    const blob = await response.blob();
+    const downloadUrl = window.URL.createObjectURL(blob);
+    const anchor = document.createElement("a");
+    anchor.href = downloadUrl;
+    anchor.download = lectureId ? `vorlesung-${lectureId}.csv` : "vorlesungsuebersicht-letzte-3.csv";
+    document.body.appendChild(anchor);
+    anchor.click();
+    anchor.remove();
+    window.URL.revokeObjectURL(downloadUrl);
+  } catch (_error) {
+    window.alert("CSV konnte nicht heruntergeladen werden.");
+  }
 }
 
 function formatClock(isoString) {
@@ -575,6 +726,17 @@ function formatClock(isoString) {
     hour: "2-digit",
     minute: "2-digit"
   });
+}
+
+function formatDateTimeRange(startIso, endIso) {
+  const start = new Date(startIso);
+  const end = new Date(endIso);
+  const date = start.toLocaleDateString("de-DE", {
+    weekday: "short",
+    day: "2-digit",
+    month: "2-digit"
+  });
+  return `${date} | ${start.toLocaleTimeString("de-DE", { hour: "2-digit", minute: "2-digit" })} - ${end.toLocaleTimeString("de-DE", { hour: "2-digit", minute: "2-digit" })}`;
 }
 
 function setStudentStatus(message, isError = false, isOk = false) {

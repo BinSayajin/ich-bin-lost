@@ -79,6 +79,17 @@
           </label>
 
           <div class="fieldGrid">
+            <label class="fieldGroup" for="questionTypeInput">
+              <span class="fieldLabel">Fragetyp</span>
+              <select id="questionTypeInput" required>
+                <option value="concept">Begriff unklar</option>
+                <option value="pace">Zu schnell</option>
+                <option value="example">Beispiel fehlt</option>
+                <option value="context">Kontext nicht verstanden</option>
+                <option value="other">Sonstiges</option>
+              </select>
+            </label>
+
             <label class="fieldGroup" for="slideInput">
               <span class="fieldLabel">Folie</span>
               <input id="slideInput" type="number" min="1" step="1" inputmode="numeric" placeholder="z. B. 7">
@@ -124,8 +135,17 @@
           <h1>Live Dashboard</h1>
         </div>
         <div class="lecturerActions">
+          <button id="endLectureBtn" class="dangerBtn" type="button">Vorlesung beenden</button>
           <button id="resetSessionBtn" class="primaryBtn" type="button">Neue Sitzung starten</button>
         </div>
+      </div>
+
+      <div class="courseEditor">
+        <label class="fieldGroup courseEditorField" for="courseNameInput">
+          <span class="fieldLabel">Vorlesungsname</span>
+          <input id="courseNameInput" type="text" value="Human computer Interaction" maxlength="80" placeholder="Vorlesungsname">
+        </label>
+        <button id="saveCourseBtn" class="secondaryBtn" type="button">Speichern</button>
       </div>
 
       <section class="teacherStats">
@@ -153,7 +173,7 @@
 
       <div class="lecturerTabs">
         <button class="tabBtn active" data-target="liveSection" type="button">Live-Sitzung</button>
-        <button class="tabBtn" data-target="weeklySection" type="button">Wochenuebersicht</button>
+        <button class="tabBtn" data-target="weeklySection" type="button">Vorlesungsuebersicht</button>
       </div>
 
       <section id="liveSection" class="lecturerSection">
@@ -208,6 +228,7 @@
               <thead>
                 <tr>
                   <th>Zeit</th>
+                  <th>Typ</th>
                   <th>Folie</th>
                   <th>Lost</th>
                   <th>Kommentar</th>
@@ -223,9 +244,10 @@
         <article class="panelCard">
           <div class="panelHeader">
             <div>
-              <p class="eyebrow">Woche</p>
-              <h2>Wochenuebersicht</h2>
+              <p class="eyebrow">Vergleich</p>
+              <h2>Vorlesungsuebersicht</h2>
             </div>
+            <button id="downloadAllLecturesBtn" class="secondaryBtn" type="button">Alle 3 als CSV</button>
           </div>
           <div id="weeklyCharts" class="weeklyGrid"></div>
         </article>
